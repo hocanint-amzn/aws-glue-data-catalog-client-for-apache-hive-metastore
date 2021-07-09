@@ -25,6 +25,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -130,6 +131,7 @@ public class GlueMetastoreClientDelegate {
 
   public static final String CATALOG_ID_CONF = "hive.metastore.glue.catalogid";
   public static final String NUM_PARTITION_SEGMENTS_CONF = "aws.glue.partition.num.segments";
+  public static final String OPTIMIZE_TABLE_DROP_SKIP_POSTPROCESSING = "aws.glue.optimize.skip.table.drop.postprocesing";
 
   protected ExecutorService getExecutorService() {
     Class<? extends ExecutorServiceFactory> executorFactoryClass = this.conf
@@ -483,8 +485,11 @@ public class GlueMetastoreClientDelegate {
     org.apache.hadoop.hive.metastore.api.Table tbl = getTable(dbName, tableName);
     String tblLocation = tbl.getSd().getLocation();
     boolean isExternal = isExternalTable(tbl);
-    dropPartitionsForTable(dbName, tableName, deleteData && !isExternal);
-    dropIndexesForTable(dbName, tableName, deleteData && !isExternal);
+
+    if (!skipPostProcessingOnExternalTable(conf, deleteData, isExternal)) {
+      dropPartitionsForTable(dbName, tableName, deleteData && !isExternal);
+      dropIndexesForTable(dbName, tableName, deleteData && !isExternal);
+    }
 
     try {
       glueMetastore.deleteTable(dbName, tableName);
@@ -1655,5 +1660,15 @@ public class GlueMetastoreClientDelegate {
     } catch (AmazonServiceException e) {
       throw CatalogToHiveConverter.wrapInHiveException(e);
     }
+  }
+
+  /*
+   * Returns if we should skip post processing when dropping tables.
+   */
+  private boolean skipPostProcessingOnExternalTable(Configuration conf, boolean deleteData, boolean isExternal) {
+    if (conf.getBoolean(GlueMetastoreClientDelegate.OPTIMIZE_TABLE_DROP_SKIP_POSTPROCESSING, false) == false) {
+      return false;
+    }
+    return !deleteData || isExternal;
   }
 }

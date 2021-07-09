@@ -553,31 +553,35 @@ public class GlueMetastoreClientDelegateTest {
     metastoreClientDelegate.listTableNamesByFilter("db","filter", (short)1);
   }
 
-  @Test
-  public void testDropTableWithDeleteData() throws Exception {
+  private void testDropTableWithDeleteDataHelper() throws Exception {
     Path tbl_path = new Path(testTbl.getStorageDescriptor().getLocation());
     List<String> values = Lists.newArrayList("foo");
     Partition partition = new Partition().withDatabaseName(testDb.getName())
-      .withTableName(testTbl.getName()).withValues(values)
-      .withStorageDescriptor(TestObjects.getTestStorageDescriptor());
+            .withTableName(testTbl.getName()).withValues(values)
+            .withStorageDescriptor(TestObjects.getTestStorageDescriptor());
 
     when(glueClient.getTable(new GetTableRequest()
-      .withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName())))
-      .thenReturn(new GetTableResult().withTable(testTbl));
+            .withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName())))
+            .thenReturn(new GetTableResult().withTable(testTbl));
     when(glueClient.deletePartition(new DeletePartitionRequest()
-      .withDatabaseName(testDb.getName()).withPartitionValues(values).withTableName(testTbl.getName())))
-      .thenReturn(new DeletePartitionResult());
+            .withDatabaseName(testDb.getName()).withPartitionValues(values).withTableName(testTbl.getName())))
+            .thenReturn(new DeletePartitionResult());
     when(glueClient.getPartitions(any(GetPartitionsRequest.class)))
-      .thenReturn(new GetPartitionsResult().withPartitions(partition));
+            .thenReturn(new GetPartitionsResult().withPartitions(partition));
     when(glueClient.getPartition(new GetPartitionRequest()
-      .withDatabaseName(testDb.getName()).withTableName(testTbl.getName()).withPartitionValues(values)))
-      .thenReturn(new GetPartitionResult().withPartition(partition));
+            .withDatabaseName(testDb.getName()).withTableName(testTbl.getName()).withPartitionValues(values)))
+            .thenReturn(new GetPartitionResult().withPartition(partition));
     when(glueClient.getDatabase(any(GetDatabaseRequest.class)))
-      .thenReturn(new GetDatabaseResult().withDatabase(testDb));
+            .thenReturn(new GetDatabaseResult().withDatabase(testDb));
     metastoreClientDelegate.dropTable(testTbl.getDatabaseName(), testTbl.getName(), true, true, true);
 
     verify(glueClient).deleteTable(new DeleteTableRequest().withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName()));
     verify(wh).deleteDir(tbl_path, true, true);
+  }
+
+  @Test
+  public void testDropTableWithDeleteData() throws Exception {
+    testDropTableWithDeleteDataHelper();
   }
 
   @Test
@@ -633,6 +637,49 @@ public class GlueMetastoreClientDelegateTest {
 
     verify(glueClient).deleteTable(new DeleteTableRequest().withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName()));
     verify(wh, never()).deleteDir(tblPath, true, true);
+  }
+
+  private void testDropExternalTableWithOptimizeFlag(boolean deleteData) throws Exception {
+    Path tblPath = new Path(testTbl.getStorageDescriptor().getLocation());
+    List<String> values = Lists.newArrayList("foo");
+    Partition partition = new Partition().withDatabaseName(testDb.getName())
+            .withTableName(testTbl.getName()).withValues(values)
+            .withStorageDescriptor(TestObjects.getTestStorageDescriptor());
+    testTbl.getParameters().put("EXTERNAL", "TRUE");
+    conf.setBoolean(GlueMetastoreClientDelegate.OPTIMIZE_TABLE_DROP_SKIP_POSTPROCESSING, true);
+
+    when(glueClient.getTable(new GetTableRequest()
+            .withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName())))
+            .thenReturn(new GetTableResult().withTable(testTbl));
+    when(glueClient.getDatabase(any(GetDatabaseRequest.class)))
+            .thenReturn(new GetDatabaseResult().withDatabase(testDb));
+    metastoreClientDelegate.dropTable(testTbl.getDatabaseName(), testTbl.getName(), deleteData, true, true);
+
+    verify(glueClient).deleteTable(new DeleteTableRequest().withDatabaseName(testTbl.getDatabaseName()).withName(testTbl.getName()));
+    verify(wh, never()).deleteDir(tblPath, true, true);
+
+    verify(glueClient, never()).deletePartition(new DeletePartitionRequest()
+            .withDatabaseName(testDb.getName()).withPartitionValues(values).withTableName(testTbl.getName()));
+    verify(glueClient, never()).getPartitions(any(GetPartitionsRequest.class));
+    verify(glueClient, never()).getPartition(new GetPartitionRequest()
+            .withDatabaseName(testDb.getName()).withTableName(testTbl.getName()).withPartitionValues(values));
+  }
+
+  @Test
+  public void testDropExternalTableWithoutDeleteDataAndOptimizeFlag() throws  Exception {
+    testDropExternalTableWithOptimizeFlag(false);
+  }
+
+  @Test
+  public void testDropExternalTableWithDeleteDataAndOptimizeFlag() throws  Exception {
+    testDropExternalTableWithOptimizeFlag(true);
+  }
+
+  @Test
+  public void testDropTableWithDeleteDataAndOptimizeFlag() throws Exception {
+    //Should work exactly the same.
+    conf.setBoolean(GlueMetastoreClientDelegate.OPTIMIZE_TABLE_DROP_SKIP_POSTPROCESSING, true);
+    testDropTableWithDeleteData();
   }
 
   @Test
